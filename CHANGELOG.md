@@ -2,6 +2,21 @@
 
 Created by Saelac and ChatGPT.
 
+## 1.10.4
+
+- Applies opaque dark backgrounds to Framework Status and Audio Settings.
+- Restores the main-menu launcher and inventory Mods page's original colors.
+  Keeps the background scroll lock from 1.10.3 and all existing audio controls.
+
+## 1.10.3
+
+- Freezes the inventory Mods list's mouse-wheel scrolling, dragging, and
+  inertia while a mod GUI owns a session. Restores its previous enabled state
+  on close, including failed opens and emergency Escape, without disabling
+  consumer GUI scroll views or changing existing registration APIs.
+- Gives the main-menu launcher and inventory Mods page an opaque dark
+  background. Keeps native tabs, borders, and consumer GUI styling unchanged.
+
 ## 1.10.2
 
 - Removes construction-search blanket focus resets introduced with the B

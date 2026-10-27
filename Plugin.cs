@@ -20,7 +20,7 @@ public sealed class Plugin : BaseUnityPlugin
     public const string PluginGuid = "Saelac.Silverpine.ModdingTools";
     public const string LegacyPluginGuid = "renegadex.silverpine.moddingtools";
     public const string PluginName = "Modding Tools Menu";
-    public const string PluginVersion = "1.10.2";
+    public const string PluginVersion = "1.10.4";
 
     internal static ManualLogSource Log = null!;
     internal static ConfigEntry<KeyCode> InventoryModsShortcut = null!;
@@ -715,6 +715,8 @@ internal sealed class InventoryModsTabController :
     private RectTransform gridViewport = null!;
     private RectTransform gridContent = null!;
     private GridLayoutGroup gridLayout = null!;
+    private ScrollRect gridScroll = null!;
+    private bool gridScrollWasEnabled;
     private bool toolOpen;
     private Vector2 lastScreenSize;
     private Vector2 lastRootSize;
@@ -750,6 +752,7 @@ internal sealed class InventoryModsTabController :
         gridContent = CreateScrollingGrid(root);
         gridViewport = (RectTransform)gridContent.parent;
         gridLayout = gridContent.GetComponent<GridLayoutGroup>();
+        gridScroll = gridViewport.GetComponent<ScrollRect>();
         InventoryModTools.SetController(this);
         BuildToolbar();
         RebuildButtons(entries);
@@ -766,7 +769,7 @@ internal sealed class InventoryModsTabController :
             .OrderBy(e => groupByMod ? GroupName(e) : "", StringComparer.OrdinalIgnoreCase)
             .ThenBy(e => e.Order).ThenBy(e => e.Label, StringComparer.OrdinalIgnoreCase).ToArray();
         SetGridHeight(Math.Max(entries.Count, 1));
-        gridViewport.GetComponent<ScrollRect>().StopMovement();
+        gridScroll.StopMovement();
         gridContent.anchoredPosition = Vector2.zero;
 
         Button template = Traverse.Create(inventory)
@@ -884,7 +887,7 @@ internal sealed class InventoryModsTabController :
         {
             entry.Open(inventory, activeSession);
             if (toolOpen)
-                LockCapturedBackgroundButtons();
+                LockCapturedBackgroundControls();
         }
         catch (Exception exception)
         {
@@ -954,6 +957,7 @@ internal sealed class InventoryModsTabController :
         if (active)
         {
             AcquirePlayerInputBlock();
+            gridScrollWasEnabled = gridScroll != null && gridScroll.enabled;
             lockedButtonStates.Clear();
             foreach (Button button in pauseMenu.GetComponentsInChildren<Button>(true))
                 lockedButtonStates[button] = button.interactable;
@@ -964,6 +968,8 @@ internal sealed class InventoryModsTabController :
                 if (state.Key != null)
                     state.Key.interactable = state.Value;
             lockedButtonStates.Clear();
+            if (gridScroll != null)
+                gridScroll.enabled = gridScrollWasEnabled;
             ReleasePlayerInputBlock();
         }
     }
@@ -990,11 +996,20 @@ internal sealed class InventoryModsTabController :
             player.SetInputBlock(false);
     }
 
-    private void LockCapturedBackgroundButtons()
+    private void LockCapturedBackgroundControls()
     {
         foreach (Button button in lockedButtonStates.Keys)
             if (button != null)
                 button.interactable = false;
+
+        // Freeze only the framework-owned list, not the consumer's scroll views.
+        // Disabling ScrollRect blocks wheel/drag input; stopping it first also
+        // prevents residual inertia from moving the list when it is restored.
+        if (gridScroll != null)
+        {
+            gridScroll.StopMovement();
+            gridScroll.enabled = false;
+        }
     }
 
     private void EndToolSession()

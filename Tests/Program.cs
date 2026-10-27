@@ -34,6 +34,8 @@ internal static class Checks
         CompareConsumers(game);
         CheckConstructionShortcut();
         CheckConstructionMouseHandling();
+        CheckMenuScrollLock();
+        CheckFrameworkBackgrounds();
         int released = 0, closed = 0;
         var session = Session(() => { released++; throw new InvalidOperationException("test release failure"); });
         session.Closed += () => throw new InvalidOperationException("test consumer failure");
@@ -102,6 +104,62 @@ internal static class Checks
         int release = calls.FindIndex(m => m.DeclaringType.FullName == "UnityEngine.GUIUtility" && m.Name == "set_keyboardControl");
         int button = calls.FindIndex(m => m.DeclaringType.FullName == "UnityEngine.GUI" && m.Name == "Button");
         Check(release >= 0 && button > release, "construction search releases keyboard focus before buttons process a click");
+    }
+
+    private static void CheckMenuScrollLock()
+    {
+        // Guard the Unity wiring without pretending native UI components can
+        // run outside the game. Session failure/Escape cleanup is tested separately.
+        using var module = ModuleDefinition.ReadModule(typeof(ConstructionMenu).Assembly.Location);
+        var controller = module.Types.Single(t => t.FullName == "Silverpine.ModdingTools.InventoryModsTabController");
+        var lockBody = controller.Methods.Single(m => m.Name == "LockCapturedBackgroundControls").Body.Instructions;
+        var lockCalls = lockBody.Select(i => i.Operand).OfType<MethodReference>().ToList();
+        int stop = lockCalls.FindIndex(m => m.DeclaringType.FullName == "UnityEngine.UI.ScrollRect" && m.Name == "StopMovement");
+        int disable = lockCalls.FindIndex(m => m.DeclaringType.FullName == "UnityEngine.Behaviour" && m.Name == "set_enabled");
+        Check(stop >= 0 && disable > stop, "background list stops inertia before disabling its scroll component");
+        Check(lockBody.Any(i => i.Operand is FieldReference f && f.Name == "gridScroll") &&
+              !lockCalls.Any(m => m.Name.StartsWith("GetComponent", StringComparison.Ordinal)),
+            "scroll lock targets the cached framework list rather than discovering consumer scroll views");
+
+        var stateBody = controller.Methods.Single(m => m.Name == "SetToolSessionActive").Body.Instructions;
+        int capture = stateBody.ToList().FindIndex(i => i.OpCode == Mono.Cecil.Cil.OpCodes.Stfld &&
+            i.Operand is FieldReference f && f.Name == "gridScrollWasEnabled");
+        int restore = stateBody.ToList().FindIndex(i => i.Operand is MethodReference m &&
+            m.DeclaringType.FullName == "UnityEngine.Behaviour" && m.Name == "set_enabled");
+        Check(capture >= 0 && restore > capture &&
+              stateBody[restore - 1].Operand is FieldReference saved && saved.Name == "gridScrollWasEnabled",
+            "closing restores the list's captured enabled state instead of forcing it on");
+
+        var openCalls = controller.Methods.Single(m => m.Name == "Open").Body.Instructions
+            .Select(i => i.Operand).OfType<MethodReference>().ToList();
+        int callback = openCalls.FindIndex(m => m.Name == "Invoke");
+        int freeze = openCalls.FindIndex(m => m.Name == "LockCapturedBackgroundControls");
+        Check(callback >= 0 && freeze > callback,
+            "consumer GUI opens before the framework applies its background-only lock");
+    }
+
+    private static void CheckFrameworkBackgrounds()
+    {
+        using var module = ModuleDefinition.ReadModule(typeof(FrameworkDiagnostics).Assembly.Location);
+        var status = module.Types.Single(t => t.FullName == "Silverpine.ModdingTools.FrameworkStatusWindow");
+        var calls = status.Methods.Single(m => m.Name == "OnGUI").Body.Instructions
+            .Select(i => i.Operand).OfType<MethodReference>().ToList();
+        int background = calls.FindIndex(m => m.DeclaringType.Name == "MenuAppearance" && m.Name == "DrawPanel");
+        int content = calls.FindIndex(m => m.DeclaringType.FullName == "UnityEngine.GUILayout" && m.Name == "BeginArea");
+        Check(background >= 0 && content > background, "Framework Status draws its opaque background before its contents");
+        var audio = module.Types.Single(t => t.FullName == "Silverpine.ModdingTools.ModAudioSettingsWindow");
+        var audioCalls = audio.Methods.Single(m => m.Name == "OnGUI").Body.Instructions
+            .Select(i => i.Operand).OfType<MethodReference>().ToList();
+        int audioBackground = audioCalls.FindIndex(m => m.DeclaringType.Name == "MenuAppearance" && m.Name == "DrawPanel");
+        int audioContent = audioCalls.FindIndex(m => m.DeclaringType.FullName == "UnityEngine.GUI" && m.Name == "Box");
+        Check(audioBackground >= 0 && audioContent > audioBackground, "Audio Settings draws its opaque background before its controls");
+        var appearanceUsers = module.Types.Where(t => t.Methods.Where(m => m.HasBody)
+            .SelectMany(m => m.Body.Instructions).Any(i =>
+                i.Operand is MethodReference m && m.DeclaringType.Name == "MenuAppearance" ||
+                i.Operand is FieldReference f && f.DeclaringType.Name == "MenuAppearance"))
+            .Select(t => t.Name).Where(n => n != "MenuAppearance").ToArray();
+        Check(appearanceUsers.OrderBy(n => n).SequenceEqual(new[] { "FrameworkStatusWindow", "ModAudioSettingsWindow" }),
+            "dark panel styling is confined to Framework Status and Audio Settings, not launcher menus");
     }
 
     private static void SaveRoundTrip(string dir)

@@ -4,7 +4,7 @@ Shared BepInEx framework services for extensible Silverpine mods.
 
 Created by **Saelac and ChatGPT**.
 
-**Current version:** 1.10.2
+**Current version:** 1.10.4
 
 ## Purpose
 
@@ -111,19 +111,19 @@ Silverpine.ModdingTools
 Framework API version documented here:
 
 ```text
-ModdingTools 1.10.2
+ModdingTools 1.10.4
 ```
 
 ## Installation
 
 1. Install BepInEx 5 for Silverpine.
-2. Download and extract `ModdingTools-1.10.2.zip` from the GitHub release.
+2. Download and extract `ModdingTools-1.10.4.zip` from the GitHub release.
 3. Place the extracted files together under
    `BepInEx/plugins/ModdingTools/`.
 4. Remove older duplicate copies of `ModdingTools.dll` elsewhere under
    `BepInEx/plugins/`.
-5. Start Silverpine and confirm BepInEx loads **Modding Tools Menu 1.10.2** and
-   **Modding Tools Legacy GUID Compatibility 1.10.2**.
+5. Start Silverpine and confirm BepInEx loads **Modding Tools Menu 1.10.4** and
+   **Modding Tools Legacy GUID Compatibility 1.10.4**.
 
 The complete ZIP contains `ModdingTools.dll`, the shared
 `Newtonsoft.Json.dll`, this README, and the Silverpine plugin-lifetime
@@ -323,6 +323,9 @@ Open **Framework Status** from either shared menu. It shows loaded plugins,
 registered menu entries, active inventory-session ownership, music, save
 warnings, feature availability, and the latest 100 errors. Repeated identical
 messages are throttled in this view. It does not enable per-frame debug output.
+Framework Status and Audio Settings use opaque dark panels to keep their text
+and controls readable over the game and menus; launcher tabs retain their
+original styling.
 
 Each feature installs independently and rolls back its own patches on failure.
 Other features continue initializing. Consumers can check
@@ -699,9 +702,13 @@ pause-menu modes, or while the save-name field has focus.
 
 When a specialized GUI opens, the framework first captures the existing
 pause-menu buttons, invokes the tool callback while game UI templates remain
-interactable, and then locks only those captured background buttons. Controls
-created by the tool are not included in that lock. The framework restores the
-captured interaction states after the GUI invokes its close callback.
+interactable, and then locks only those captured background buttons. It also
+stops and disables its own Mods-list scroll component for the session, so
+wheel input, dragging, and leftover inertia cannot move the list behind the
+mod GUI. The mod's own scroll views are not disabled. Controls created by the
+tool are not included in the background lock. The framework restores the
+captured interaction states, including the list's previous enabled state,
+after the GUI invokes its close callback or the session is released.
 The framework also acquires its own reference-counted Silverpine player-input
 lock for the lifetime of the session. This prevents movement, abilities,
 hotkeys, and other gameplay actions from firing while the player types in or

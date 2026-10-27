@@ -2067,8 +2067,13 @@ internal sealed class ModAudioSettingsWindow : ModToolBehaviour
         }
         EnsureStyles();
         using ModGuiScope scope = ModGui.BeginScaled(DesignWidth, DesignHeight);
+        GUI.enabled = true;
+        GUI.color = Color.white;
+        GUI.backgroundColor = Color.white;
+        GUI.contentColor = Color.white;
         GUI.depth = -1000;
         Rect panel = new(460f, 85f, 1000f, 910f);
+        MenuAppearance.DrawPanel(panel);
         GUI.Box(panel, GUIContent.none);
         GUI.Label(new Rect(520f, 110f, 880f, 60f),
             "Mod Audio Settings", titleStyle);

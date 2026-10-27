@@ -116,7 +116,14 @@ internal sealed class FrameworkStatusWindow : ModToolBehaviour
     {
         if (FrameworkSession == null || FrameworkSession.IsClosed) return;
         using var scope = ModGui.BeginScaled();
-        GUILayout.BeginArea(new Rect(320, 100, 1280, 880), GUI.skin.window);
+        GUI.enabled = true;
+        GUI.color = Color.white;
+        GUI.backgroundColor = Color.white;
+        GUI.contentColor = Color.white;
+        GUI.depth = -1000;
+        Rect panel = new(320, 100, 1280, 880);
+        MenuAppearance.DrawPanel(panel);
+        GUILayout.BeginArea(panel, GUI.skin.window);
         GUILayout.BeginHorizontal();
         GUILayout.Label("Modding Tools " + Plugin.PluginVersion + " — Framework Status");
         if (GUILayout.Button("Close", GUILayout.Width(100))) ReleaseSessionAndDestroy();
