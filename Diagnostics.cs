@@ -102,6 +102,7 @@ public static class FrameworkDiagnostics
 internal sealed class FrameworkStatusWindow : ModToolBehaviour
 {
     private Vector2 scroll;
+    private ModInventorySnapshot? inventory;
     internal static void Open(ModToolSession session)
     {
         var root = new GameObject("ModdingToolsFrameworkStatus");
@@ -135,9 +136,11 @@ internal sealed class FrameworkStatusWindow : ModToolBehaviour
         GUILayout.Label("Features", GUI.skin.box);
         foreach (var feature in FrameworkDiagnostics.Features)
             GUILayout.Label(feature.Id + ": " + (feature.Available ? "Ready" : "Unavailable — " + feature.Detail));
-        GUILayout.Label("Loaded plugins", GUI.skin.box);
-        foreach (var info in BepInEx.Bootstrap.Chainloader.PluginInfos.Values.OrderBy(p => p.Metadata.Name))
-            GUILayout.Label(info.Metadata.Name + " " + info.Metadata.Version + " (" + info.Metadata.GUID + ")");
+        GUILayout.Label("Loaded plugins and installed patcher assemblies", GUI.skin.box);
+        inventory ??= ModInventory.Capture();
+        foreach (var info in inventory.Mods)
+            GUILayout.Label(info.Name + " " + info.Version + " (" + info.Id + "; " + info.Kind + ")");
+        foreach (string warning in inventory.Warnings) GUILayout.Label(warning);
         GUILayout.Label("Registered menus", GUI.skin.box);
         foreach (var entry in ModdingToolsMenu.Snapshot()) GUILayout.Label("Main: " + entry.Label + " (" + entry.Id + ")");
         foreach (var entry in InventoryModTools.Snapshot()) GUILayout.Label("Inventory: " + entry.Label + " (" + entry.Id + ")");

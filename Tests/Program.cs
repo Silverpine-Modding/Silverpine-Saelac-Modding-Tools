@@ -36,6 +36,7 @@ internal static class Checks
         CheckConstructionMouseHandling();
         CheckMenuScrollLock();
         CheckFrameworkBackgrounds();
+        CheckModInventory();
         int released = 0, closed = 0;
         var session = Session(() => { released++; throw new InvalidOperationException("test release failure"); });
         session.Closed += () => throw new InvalidOperationException("test consumer failure");
@@ -73,6 +74,33 @@ internal static class Checks
         finally { Directory.Delete(dir, true); }
         Check(FrameworkDiagnostics.RecentErrors.Count >= 2, "consumer failures appear in bounded diagnostics");
         Console.WriteLine($"{passed} checks passed. Native Unity UI/audio execution still requires an in-game check.");
+    }
+
+    private static void CheckModInventory()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "mod-inventory-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "nested"));
+        try
+        {
+            File.Copy(typeof(ModdingToolsMenu).Assembly.Location, Path.Combine(dir, "nested", "fixture.dll"));
+            File.WriteAllText(Path.Combine(dir, "broken.dll"), "not an assembly");
+            File.WriteAllText(Path.Combine(dir, "ignored.dll.disabled"), "disabled");
+            var mods = new List<InstalledModInfo>();
+            var warnings = new List<string>();
+            Call(typeof(ModInventory), "ReadPatchers", dir, mods, warnings);
+            Check(mods.Count == 1 && mods[0].Id == "assembly:ModdingTools" && mods[0].Kind == "patcher",
+                "patcher inventory reads nested assembly metadata and excludes disabled files");
+            Check(mods[0].Version == typeof(ModdingToolsMenu).Assembly.GetName().Version,
+                "patcher inventory reports the file assembly version");
+            Check(warnings.Count == 1 && warnings[0].Contains("broken.dll"),
+                "unreadable patchers are visible without aborting the inventory");
+            using var module = ModuleDefinition.ReadModule(typeof(ModInventory).Assembly.Location);
+            var calls = module.Types.Single(t => t.Name == "ModInventory").Methods.Where(m => m.HasBody)
+                .SelectMany(m => m.Body.Instructions).Select(i => i.Operand).OfType<MethodReference>();
+            Check(!calls.Any(m => m.DeclaringType.FullName == "System.Reflection.Assembly" && m.Name.StartsWith("Load")),
+                "inventory never loads or executes patcher assemblies");
+        }
+        finally { Directory.Delete(dir, true); }
     }
 
     private static void CheckConstructionShortcut()

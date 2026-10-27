@@ -2,6 +2,16 @@
 
 Created by Saelac and ChatGPT.
 
+## 1.11.0
+
+- Adds offline ModInventory.Capture() for loaded plugin identities and installed
+  patcher assembly versions, with partial-inventory warnings and metadata-only
+  reading that never loads patcher code.
+- Framework Status now includes patcher assemblies.
+- Documents the separate, optional Mod Update Checker addon. The framework
+  contains no update requests and does not bundle or require that addon.
+- Retains both plugin GUIDs and all existing public APIs.
+
 ## 1.10.4
 
 - Applies opaque dark backgrounds to Framework Status and Audio Settings.

@@ -20,7 +20,7 @@ public sealed class Plugin : BaseUnityPlugin
     public const string PluginGuid = "Saelac.Silverpine.ModdingTools";
     public const string LegacyPluginGuid = "renegadex.silverpine.moddingtools";
     public const string PluginName = "Modding Tools Menu";
-    public const string PluginVersion = "1.10.4";
+    public const string PluginVersion = "1.11.0";
 
     internal static ManualLogSource Log = null!;
     internal static ConfigEntry<KeyCode> InventoryModsShortcut = null!;
