@@ -20,7 +20,7 @@ public sealed class Plugin : BaseUnityPlugin
     public const string PluginGuid = "Saelac.Silverpine.ModdingTools";
     public const string LegacyPluginGuid = "renegadex.silverpine.moddingtools";
     public const string PluginName = "Modding Tools Menu";
-    public const string PluginVersion = "1.11.0";
+    public const string PluginVersion = "1.12.1";
 
     internal static ManualLogSource Log = null!;
     internal static ConfigEntry<KeyCode> InventoryModsShortcut = null!;
@@ -73,6 +73,8 @@ public sealed class Plugin : BaseUnityPlugin
                 "Volume multiplier for music played through the Modding Tools audio API.",
                 new AcceptableValueRange<float>(0f, 1f)));
         // Install independent features separately so one game/API mismatch cannot stop later features.
+        FrameworkDiagnostics.Initialize("visuals.tiles", ModTileVisuals.Initialize);
+        FrameworkDiagnostics.InstallPatches("construction.tile-visuals", typeof(FloorTileVisualRefreshPatch));
         FrameworkDiagnostics.InstallPatches("menus.main", typeof(MainMenuPatch));
         FrameworkDiagnostics.InstallPatches("menus.inventory", typeof(InventoryModsTabPatch), typeof(PauseMenuCloseGuardPatch));
         FrameworkDiagnostics.InstallPatches("prefabs", typeof(SerializablePrefabTemplateSavePatch),
@@ -97,9 +99,7 @@ public sealed class Plugin : BaseUnityPlugin
             (_, session) => FrameworkStatusWindow.Open(session), order: 1000);
         InventoryModTools.RegisterSession(PluginGuid + ".status.game", "Framework Status",
             (_, session) => FrameworkStatusWindow.Open(session), order: 1000);
-        var runtime = new GameObject("ModdingToolsFrameworkRuntime");
-        UnityEngine.Object.DontDestroyOnLoad(runtime);
-        runtime.AddComponent<FrameworkRuntime>();
+        FrameworkDiagnostics.Initialize("runtime", FrameworkRuntime.Initialize);
     }
 }
 

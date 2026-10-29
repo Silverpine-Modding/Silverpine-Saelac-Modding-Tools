@@ -4,7 +4,7 @@ Shared BepInEx framework services for extensible Silverpine mods.
 
 Created by **Saelac and ChatGPT**.
 
-**Current version:** 1.11.0
+**Current version:** 1.12.1
 
 ## Purpose
 
@@ -14,6 +14,7 @@ Created by **Saelac and ChatGPT**.
   configuration interfaces.
 - A **Mods** inventory tab for specialized mod GUIs used during gameplay.
 - A serialized-prefab registry for persistent mod-created world objects.
+- On-demand grass-overgrowth and water-edge visual refreshes after terrain changes.
 - An injectable IMGUI construction menu with previews and native placement
   behavior.
 - A shared, scrollable conversation-action menu with a pinned **Leave** button.
@@ -130,19 +131,19 @@ Silverpine.ModdingTools
 Framework API version documented here:
 
 ```text
-ModdingTools 1.11.0
+ModdingTools 1.12.1
 ```
 
 ## Installation
 
 1. Install BepInEx 5 for Silverpine.
-2. Download and extract `ModdingTools-1.11.0.zip` from the GitHub release.
+2. Download and extract `ModdingTools-1.12.1.zip` from the GitHub release.
 3. Place the extracted files together under
    `BepInEx/plugins/ModdingTools/`.
 4. Remove older duplicate copies of `ModdingTools.dll` elsewhere under
    `BepInEx/plugins/`.
-5. Start Silverpine and confirm BepInEx loads **Modding Tools Menu 1.11.0** and
-   **Modding Tools Legacy GUID Compatibility 1.11.0**.
+5. Start Silverpine and confirm BepInEx loads **Modding Tools Menu 1.12.1** and
+   **Modding Tools Legacy GUID Compatibility 1.12.1**.
 
 The complete ZIP contains `ModdingTools.dll`, the shared
 `Newtonsoft.Json.dll`, this README, and the Silverpine plugin-lifetime
@@ -350,7 +351,8 @@ Each feature installs independently and rolls back its own patches on failure.
 Other features continue initializing. Consumers can check
 `FrameworkDiagnostics.IsFeatureAvailable(featureId)` before offering optional
 behavior. IDs are `menus.main`, `menus.inventory`, `prefabs`, `construction`,
-`audio`, `audio.dialogue`, `dialogue.actions`, `dialogue.prompts`, and `save-data`.
+`audio`, `audio.dialogue`, `dialogue.actions`, `dialogue.prompts`, `save-data`,
+`visuals.tiles`, `construction.tile-visuals`, and `runtime`.
 `FrameworkDiagnostics.Report(ownerId, operation, exception)` adds a contained
 failure to the status view without logging every frame.
 
@@ -368,6 +370,17 @@ dotnet run --project Tests/FrameworkChecks.csproj -c Release `
 The checks compare public/protected APIs and GUIDs and exercise session,
 registration, audio-wait, and save-data failure paths. Native UI positioning,
 world-picker interaction, and Unity audio playback also need an in-game check.
+
+The isolated tile-refresh lifecycle harness links the production service and
+runtime source against small Unity test doubles (no game installation needed):
+
+```powershell
+dotnet run --project Tests/TileVisualHost/TileVisualHostChecks.csproj -c Release
+```
+
+It exercises destroyed-host recovery, canceled coroutines, overlapping callers,
+water-effect ownership across host replacement, and shutdown guards. It does
+not run Unity or Harmony; terrain visuals still require in-game validation.
 
 This document is sufficient to add a consumer entry without access to the
 Modding Tools source or its `.csproj`. Do not copy framework source into the
@@ -1413,6 +1426,87 @@ SaltExtraDebug's Free Build toggle, affect injected constructions normally.
 The IMGUI menu acquires its own reference-counted player input lock while open.
 Escape closes the selection window and releases that exact lock before
 returning control to the player.
+
+## Tile visual refresh API
+
+Requires Modding Tools **1.12.0** or newer. Use `ModTileVisuals` after a mod
+adds, replaces, or removes terrain. Positions are **world-space turf cells**
+(`Vector2Int`), not the larger overworld `WorldTile.position` coordinates.
+Use **1.12.1 or newer** for bootstrap-safe host recovery; existing consumers
+do not need to change their calls or rebuild against the patch release.
+
+```csharp
+using Silverpine.ModdingTools;
+using UnityEngine;
+
+// Recommended immediately after your mod finishes changing a tile:
+ModTileVisuals.RequestRefresh(new Vector2Int(30, -3));
+
+// Batch import/paint: changedCells is IEnumerable<Vector2Int>.
+ModTileVisuals.RequestRefresh(changedCells);
+
+// Rectangle: x, y, width, height; upper/right bounds are exclusive.
+ModTileVisuals.RequestRefreshArea(new RectInt(25, -8, 10, 6));
+
+// Immediate variant ONLY after registration, Start, and old-object destruction
+// have finished. Returns the number of successfully refreshed components.
+int refreshed = ModTileVisuals.Refresh(new Vector2Int(30, -3));
+```
+
+Public signatures:
+
+```csharp
+public static int Refresh(Vector2Int tile, bool includeNeighbors = true);
+public static int Refresh(IEnumerable<Vector2Int> tiles, bool includeNeighbors = true);
+public static int RefreshArea(RectInt area, bool includeNeighbors = true);
+public static void RequestRefresh(Vector2Int tile, bool includeNeighbors = true);
+public static void RequestRefresh(IEnumerable<Vector2Int> tiles, bool includeNeighbors = true);
+public static void RequestRefreshArea(RectInt area, bool includeNeighbors = true);
+```
+
+- Call on **Unity's main thread**, after the framework has initialized.
+  `FrameworkDiagnostics.IsFeatureAvailable("visuals.tiles")` reports availability;
+  calls from another thread or an unavailable service throw `InvalidOperationException`.
+- By default, refreshes the supplied cells **and all eight immediate neighbors**.
+  This includes grass bordering a removed tile and diagonal water corners.
+  Set `includeNeighbors: false` only when your batch already includes its border.
+- Uses native `OvergrowthTile.Refresh()` for grass edging and
+  `DeepTileAOHandler` for water-edge shading. Native water initialization is
+  tracked; a refresh replaces its recorded effect children, not unrelated
+  decorations. Water components whose native initialization has not run yet
+  are skipped by the immediate variant. Prefer `RequestRefresh` for new tiles.
+- Updates native `PerspectiveWallHandler` faces, including abyss edges beside
+  newly replaced ground. Prefab collision and gameplay components stay intact.
+- Deferred requests are deduplicated/coalesced and run **two frames after the
+  most recent request**, allowing `TurfRegistrar`, `TileTags`, native `Start`,
+  and Unity's deferred destruction to settle. Continuous requests postpone
+  the flush until the caller stops requesting. No idle polling/world scan is added.
+- Pending requests are discarded on save load, world-tile unload, or active-scene
+  change so old edits do not refresh a different world. Silverpine can destroy
+  even a persistent host during bootstrap; scene loading or the next API call
+  recreates it. Host destruction discards its pending work, not the API hooks
+  or water-effect ownership. Requests from different mods share one queue and
+  overlapping cells are refreshed once per deferred batch.
+- Only existing, active/enabled components at loaded, registered turf positions
+  are refreshed. Empty/unloaded cells are skipped; no terrain is spawned,
+  deleted, registered, or saved by this API. Custom visuals without these native
+  components require the supplying mod's own refresh logic.
+- It does **not** change collision, passability, seasons, pathfinding, tile tags,
+  or gameplay. Component refresh failures are isolated and reported in Framework
+  Status, without enabling debug spam. An immediate return count measures
+  components, not changed tiles or spawned effects.
+- Empty batches/zero-size rectangles do nothing. Null batches, negative-size
+  rectangles, out-of-range rectangles, or requests exceeding 65,536 input cells
+  or 65,536 distinct affected/pending cells are rejected. Split large imports
+  into batches and let each deferred batch finish before queuing another.
+
+Native floor construction and deconstruction automatically request a refresh
+through `GrassTileHandler` after the floor handler completes. Arbitrary furniture
+placement and moving a preview do not trigger these hooks.
+
+Mods performing their own terrain replacement or imports call this API after
+their edits. They remain responsible for editing terrain and normal native
+registration. Existing APIs remain compatible.
 
 ## Custom audio framework
 

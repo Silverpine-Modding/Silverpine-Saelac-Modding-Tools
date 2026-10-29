@@ -152,14 +152,3 @@ internal sealed class FrameworkStatusWindow : ModToolBehaviour
         GUILayout.EndArea();
     }
 }
-
-internal sealed class FrameworkRuntime : MonoBehaviour
-{
-    private float nextCheck;
-    private void Update()
-    {
-        if (Time.unscaledTime < nextCheck) return;
-        nextCheck = Time.unscaledTime + 0.5f;
-        FrameworkDiagnostics.Invoke(Plugin.PluginGuid, "save warning display", ModSaveData.ShowPendingWarning);
-    }
-}

@@ -8,6 +8,7 @@
     <SilverpineGameDir Condition="'$(SilverpineGameDir)' == ''">$(MSBuildProjectDirectory)\..\..\..</SilverpineGameDir>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="TileVisualHost\**\*.cs" />
     <ProjectReference Include="..\ModdingTools.csproj" />
     <Reference Include="Mono.Cecil">
       <HintPath>$(SilverpineGameDir)\BepInEx\core\Mono.Cecil.dll</HintPath>

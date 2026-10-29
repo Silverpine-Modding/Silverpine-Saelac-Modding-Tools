@@ -32,6 +32,13 @@ delegates without explicit cleanup. Silverpine does not provide a dependable
 hot-unload lifecycle for these plugins, so bootstrap safety takes precedence
 over hypothetical runtime unloading.
 
+`DontDestroyOnLoad` is not sufficient protection for a separate runtime object
+created during bootstrap: it too can be destroyed. Keep API initialization and
+patch installation independent of that object. Recreate a coroutine host on
+scene loading or the next API call, and discard coroutine handles belonging to
+a destroyed host. Do not recreate objects inside `OnDestroy`, remove persistent
+hooks there, or recreate hosts after application shutdown has begun.
+
 ## Unsafe pattern
 
 ```csharp

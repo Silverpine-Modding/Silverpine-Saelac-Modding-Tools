@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using Mono.Cecil;
 using Silverpine.ModdingTools;
+using UnityEngine;
 
 if (args.Length != 2) throw new ArgumentException("Usage: FrameworkChecks <game-directory> <baseline-ModdingTools.dll>");
 string game = Path.GetFullPath(args[0]);
@@ -37,6 +38,7 @@ internal static class Checks
         CheckMenuScrollLock();
         CheckFrameworkBackgrounds();
         CheckModInventory();
+        CheckTileVisuals(game);
         int released = 0, closed = 0;
         var session = Session(() => { released++; throw new InvalidOperationException("test release failure"); });
         session.Closed += () => throw new InvalidOperationException("test consumer failure");
@@ -74,6 +76,106 @@ internal static class Checks
         finally { Directory.Delete(dir, true); }
         Check(FrameworkDiagnostics.RecentErrors.Count >= 2, "consumer failures appear in bounded diagnostics");
         Console.WriteLine($"{passed} checks passed. Native Unity UI/audio execution still requires an in-game check.");
+    }
+
+    private static void CheckTileVisuals(string game)
+    {
+        HashSet<Vector2Int> Plan(IEnumerable<Vector2Int> cells, bool neighbors = true) =>
+            (HashSet<Vector2Int>)Call(typeof(ModTileVisuals), "BuildAffected", cells, neighbors)!;
+        Vector2Int[] Area(RectInt area) =>
+            ((IEnumerable<Vector2Int>)Call(typeof(ModTileVisuals), "AreaPositions", area)!).ToArray();
+        bool Rejects<T>(Action action) where T : Exception
+        {
+            try { action(); return false; }
+            catch (Exception ex) when (ex is T || ex is TargetInvocationException { InnerException: T }) { return true; }
+        }
+        var tile = new Vector2Int(-7, 12);
+        var single = Plan(new[] { tile });
+        Check(single.Count == 9 && single.Contains(tile + new Vector2Int(1, 1)) &&
+            single.Contains(tile + new Vector2Int(-1, -1)), "tile refresh includes the center and eight neighbors, including water corners");
+        Check(Plan(new[] { tile, tile, tile + Vector2Int.right }).Count == 12,
+            "overlapping tile refresh batches are deduplicated");
+        Check(Plan(new[] { tile, tile }, false).SetEquals(new[] { tile }),
+            "explicit neighbor opt-out only refreshes supplied cells");
+        Check(Plan(Array.Empty<Vector2Int>()).Count == 0 && Area(new RectInt(1, 2, 0, 4)).Length == 0,
+            "empty batches and zero-size rectangles are no-ops");
+        Check(Area(new RectInt(-2, -3, 2, 3)).ToHashSet().SetEquals(new[] {
+            new Vector2Int(-2, -3), new Vector2Int(-2, -2), new Vector2Int(-2, -1),
+            new Vector2Int(-1, -3), new Vector2Int(-1, -2), new Vector2Int(-1, -1) }),
+            "refresh rectangles use width/height and exclusive upper bounds with negative coordinates");
+        Check(Plan(new[] { new Vector2Int(int.MaxValue, int.MinValue) }).Count == 4 &&
+            Area(new RectInt(int.MaxValue, int.MaxValue, 1, 1)).Length == 1,
+            "tile expansion and rectangle iteration do not wrap at integer boundaries");
+        Check(Rejects<ArgumentNullException>(() => Plan(null!)) &&
+            Rejects<ArgumentOutOfRangeException>(() => Area(new RectInt(0, 0, -1, 2))) &&
+            Rejects<ArgumentOutOfRangeException>(() => Area(new RectInt(int.MaxValue, 0, 2, 1))),
+            "invalid tile batches and rectangle bounds are rejected");
+        Check(Rejects<ArgumentException>(() => Plan(Enumerable.Repeat(tile, 65537))) &&
+            Rejects<ArgumentException>(() => Plan(Enumerable.Range(0, 8000).Select(x => new Vector2Int(x * 3, 0)))) &&
+            Rejects<ArgumentOutOfRangeException>(() => Area(new RectInt(0, 0, 1000, 1000))),
+            "tile refresh limits bound inputs, expanded cells, and rectangle size");
+        bool Ready(int frame, int last) => (bool)Call(typeof(ModTileVisuals), "ShouldFlush", frame, last)!;
+        Check(!Ready(10, 10) && !Ready(11, 10) && Ready(12, 10) && !Ready(12, 11) &&
+            Ready(int.MinValue, int.MaxValue - 1), "deferred refresh waits two frames after the latest request, including frame-counter wrap");
+        bool Edge(string name) => (bool)Call(typeof(ModTileVisuals), "IsNativeWaterEdgeName", name)!;
+        Check(Edge("prefab_effect_fakeao_water(Clone)") && Edge("prefab_effect_fakeao_water_corner(Clone)") &&
+            !Edge("prefab_effect_fakeao_water") && !Edge("custom_prefab_effect_fakeao_water(Clone)") && !Edge("decoration"),
+            "water ownership tracking only accepts exact native effect clone names");
+
+        using var module = ModuleDefinition.ReadModule(typeof(ModTileVisuals).Assembly.Location);
+        var api = module.Types.Single(t => t.Name == "ModTileVisuals");
+        var plugin = module.Types.Single(t => t.Name == "Plugin");
+        var runtime = module.Types.Single(t => t.Name == "FrameworkRuntime");
+        Check(!api.Methods.Single(m => m.Name == "Initialize").Parameters.Any() &&
+            plugin.Methods.Where(m => m.HasBody).SelectMany(m => m.Body.Instructions).Any(i =>
+                i.Operand is MethodReference m && m.DeclaringType.Name == "ModTileVisuals" && m.Name == "Initialize") &&
+            !plugin.Methods.Any(m => m.Name == "OnDestroy" || m.Name == "OnDisable"),
+            "tile refresh hooks initialize independently of the replaceable Unity host");
+        Check(api.Methods.Single(m => m.Name == "EnsureReady").Body.Instructions.Any(i =>
+                i.Operand is MethodReference m && m.DeclaringType.Name == "FrameworkRuntime" && m.Name == "EnsureHost") &&
+            runtime.Methods.Single(m => m.Name == "OnSceneLoaded").HasBody &&
+            runtime.Methods.Single(m => m.Name == "OnDestroy").Body.Instructions.Any(i =>
+                i.Operand is MethodReference m && m.Name == "ReleaseHost") &&
+            !runtime.Methods.Where(m => m.HasBody).SelectMany(m => m.Body.Instructions).Any(i =>
+                i.Operand is MethodReference m && (m.Name == "UnpatchSelf" || m.Name == "Shutdown")),
+            "scene/API paths restore the host without tearing down tile refresh hooks");
+        Type floorPatch = typeof(ModTileVisuals).Assembly.GetType("Silverpine.ModdingTools.FloorTileVisualRefreshPatch")!;
+        var targets = ((IEnumerable<MethodBase>)Call(floorPatch, "TargetMethods")!).ToArray();
+        Check(targets.Length == 2 && targets.All(m => m.DeclaringType?.FullName == "GrassTileHandler") &&
+            targets.Select(m => m.Name).ToHashSet().SetEquals(new[] { "OnConstructed", "OnDeconstructed" }),
+            "native refresh hooks target completed floor construction and removal, not furniture or previews");
+        var floorCalls = module.Types.Single(t => t.Name == "FloorTileVisualRefreshPatch")
+            .NestedTypes.SelectMany(t => t.Methods).Concat(module.Types.Single(t => t.Name == "FloorTileVisualRefreshPatch").Methods)
+            .Where(m => m.HasBody).SelectMany(m => m.Body.Instructions).Select(i => i.Operand).OfType<MethodReference>().ToArray();
+        Check(floorCalls.Any(m => m.DeclaringType.Name == "ModTileVisuals" && m.Name == "RequestRefresh") &&
+            floorCalls.Any(m => m.DeclaringType.Name == "FrameworkDiagnostics" && m.Name == "Invoke"),
+            "floor hooks defer to the existing refresh API and isolate visual failures from construction");
+        var refreshCalls = api.Methods.Single(m => m.Name == "RefreshPositions").Body.Instructions
+            .Select(i => i.Operand).OfType<MethodReference>().ToArray();
+        Check(refreshCalls.Any(m => m.DeclaringType.Name == "Turfs" && m.Name == "TryGetTurfGameObjects") &&
+            !refreshCalls.Any(m => m.Name.Contains("FindObjects") || m.Name == "GetAllTurfPositionsAsHashSet"),
+            "refresh looks up requested turfs without a world-wide scan");
+        Check(refreshCalls.Any(m => m.DeclaringType.Name == "PerspectiveWallHandler" && m.Name == "UpdateSpriteImmediately"),
+            "abyss/grass replacement also refreshes neighboring native abyss and wall faces");
+        var cleanup = api.Methods.Single(m => m.Name == "RefreshWater").Body.Instructions;
+        Check(cleanup.Any(i => i.Operand is FieldReference f && f.Name == "Objects") &&
+            !cleanup.Select(i => i.Operand).OfType<MethodReference>().Any(m => m.Name == "DestroyImmediate" || m.Name == "GetChild"),
+            "water cleanup uses recorded ownership rather than deleting arbitrary child objects");
+        Check(new[] { "TileVisualLoadResetPatch", "TileVisualUnloadResetPatch" }.All(name =>
+            module.Types.Single(t => t.Name == name).Methods.Single(m => m.Name == "Prefix").Body.Instructions
+                .Any(i => i.Operand is MethodReference m && m.Name == "ClearPending")),
+            "pending tile refreshes are canceled before save loading and world unloading");
+
+        using var native = ModuleDefinition.ReadModule(Path.Combine(game, "Silverpine_Data", "Managed", "Assembly-CSharp.dll"));
+        var nativeWater = native.Types.Single(t => t.Name == "DeepTileAOHandler");
+        var initialize = nativeWater.Methods.Single(m => m.Name == "Initialize");
+        var resources = initialize.Body.Instructions.Select(i => i.Operand).OfType<string>().ToArray();
+        Check(native.Types.Single(t => t.Name == "OvergrowthTile").Methods.Any(m => m.Name == "Refresh" && m.IsPublic) &&
+            native.Types.Single(t => t.Name == "PerspectiveWallHandler").Methods.Any(m => m.Name == "UpdateSpriteImmediately" && m.IsPublic) &&
+            nativeWater.Methods.Single(m => m.Name == "Start").Body.Instructions.Any(i =>
+                i.Operand is MethodReference m && m.Name == "Initialize") &&
+            resources.Contains("MiscPrefabs/prefab_effect_fakeao_water") && resources.Contains("MiscPrefabs/prefab_effect_fakeao_water_corner"),
+            "installed game exposes the expected native grass/water/abyss refresh contract");
     }
 
     private static void CheckModInventory()

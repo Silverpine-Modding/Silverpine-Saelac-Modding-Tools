@@ -2,6 +2,34 @@
 
 Created by Saelac and ChatGPT.
 
+## 1.12.1
+
+- Fixes tile refresh becoming unavailable after Silverpine destroys the
+  framework's initial runtime object during bootstrap. Scene loading and API
+  calls now recreate the coroutine host without reinstalling persistent hooks.
+- Clears abandoned coroutine handles when a host is destroyed, so subsequent
+  refresh requests from any mod can run. Native water-effect ownership survives
+  host replacement; consumer APIs and save data are unchanged.
+- Adds simulated host-lifecycle and multi-consumer queue regression tests.
+
+## 1.12.0
+
+- Calls the tile-refresh API after native floor construction and deconstruction.
+- Refreshes native abyss/wall faces as well as grass and water edges after edits.
+- Runs the refresh queue on the persistent framework runtime so plugin-host
+  destruction during bootstrap does not stop the service or remove its hooks.
+- Adds ModTileVisuals for refreshing grass overgrowth and water-edge shading
+  at one turf, a deduplicated batch, or a rectangle. Includes all eight
+  neighboring cells by default so borders and diagonal water corners update.
+- Adds coalesced deferred requests that wait two frames after the last edit
+  for native tile registration, Start, and deferred destruction to finish.
+  Pending work is canceled on save load, world unload, and active-scene change.
+- Tracks native water-edge instances and replaces only those owned effects
+  when refreshing, preventing duplicate shading without deleting other children.
+- Adds bounded-batch and game-API checks, standalone integration examples,
+  and the independent visuals.tiles feature status. No continuous world scan,
+  terrain mutation, save-format change, or consumer migration is required.
+
 ## 1.11.0
 
 - Adds offline ModInventory.Capture() for loaded plugin identities and installed
