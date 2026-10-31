@@ -31,6 +31,13 @@ public sealed class ModToolSession : IDisposable
     public ModToolCloseReason CloseReason { get; private set; }
     public event Action? Closed;
 
+    /// <summary>
+    /// Optional tool-owned Escape handling (for pickers, drag cancellation, or unsaved-change prompts).
+    /// Return true to keep the session open. Normal close and host teardown always bypass this handler.
+    /// If the handler throws, the framework falls back to emergency cleanup.
+    /// </summary>
+    public Func<bool>? EscapeHandler { get; set; }
+
     /// <summary>Attach cancellation for a picker or a GUI not derived from ModToolBehaviour.</summary>
     public IDisposable RegisterCancellation(Action cancel)
     {
@@ -50,7 +57,15 @@ public sealed class ModToolSession : IDisposable
         if (action == null)
             return;
 
+        if (reason == ModToolCloseReason.EmergencyEscape && EscapeHandler != null)
+        {
+            bool handled = false;
+            FrameworkDiagnostics.Invoke(Id, "tool Escape handler", () => handled = EscapeHandler());
+            if (handled) return;
+        }
+
         release = null;
+        EscapeHandler = null;
         CloseReason = reason;
         Action? handlers = Closed;
         Closed = null;

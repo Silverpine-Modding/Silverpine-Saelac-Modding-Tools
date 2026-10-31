@@ -52,6 +52,17 @@ internal static class Checks
         var second = Session(() => { });
         var cancellation = second.RegisterCancellation(() => cancels++); cancellation.Dispose(); second.Close();
         Check(cancels == 1, "disposed cancellation callback is detached");
+        var guarded = Session(() => { });
+        int escapeRequests = 0;
+        guarded.EscapeHandler = () => { escapeRequests++; return true; };
+        guarded.RequestClose(ModToolCloseReason.EmergencyEscape);
+        Check(!guarded.IsClosed && escapeRequests == 1, "tool can handle Escape without losing unsaved work");
+        guarded.RequestClose(ModToolCloseReason.HostDestroyed);
+        Check(guarded.IsClosed && guarded.EscapeHandler == null, "host teardown bypasses Escape guard and releases its callback");
+        var brokenGuard = Session(() => { });
+        brokenGuard.EscapeHandler = () => throw new InvalidOperationException("broken tool");
+        brokenGuard.RequestClose(ModToolCloseReason.EmergencyEscape);
+        Check(brokenGuard.IsClosed, "failing Escape handlers retain emergency cleanup");
 
         Call(typeof(ModSaveData), "BeforeLoad", Path.Combine(Path.GetTempPath(), "nonexistent-modtools-test-save"));
         string payload = (string)Call(typeof(ModSaveData), "Migrate", 1, 3, "a", new Func<int, string, string>((version, text) => text + version))!;
@@ -442,7 +453,9 @@ internal static class Checks
     private static void CompareConsumers(string game)
     {
         using var current = AssemblyDefinition.ReadAssembly(typeof(ModToolSession).Assembly.Location);
-        var available = current.MainModule.Types.SelectMany(t => t.Methods.Select(m => m.FullName).Concat(t.Fields.Select(f => f.FullName))).ToHashSet();
+        // Public API records such as SharedArtLibrary.Entry are nested types.
+        // Module.Types lists only top-level types and falsely reports their members missing.
+        var available = current.MainModule.GetTypes().SelectMany(t => t.Methods.Select(m => m.FullName).Concat(t.Fields.Select(f => f.FullName))).ToHashSet();
         int consumers = 0, references = 0;
         foreach (string path in Directory.GetFiles(Path.Combine(game, "BepInEx", "plugins"), "*.dll", SearchOption.AllDirectories))
         {
@@ -466,7 +479,7 @@ internal static class Checks
     private static HashSet<string> Api(AssemblyDefinition assembly)
     {
         var members = new HashSet<string>();
-        foreach (var type in assembly.MainModule.Types.Where(t => t.IsPublic))
+        foreach (var type in assembly.MainModule.GetTypes().Where(IsPubliclyVisible))
         {
             members.Add(type.FullName + ":" + type.BaseType?.FullName);
             foreach (var method in type.Methods.Where(m => m.IsPublic || m.IsFamily || m.IsFamilyOrAssembly))
@@ -476,4 +489,7 @@ internal static class Checks
         }
         return members;
     }
+
+    private static bool IsPubliclyVisible(TypeDefinition type) =>
+        type.IsNested ? type.IsNestedPublic && IsPubliclyVisible(type.DeclaringType) : type.IsPublic;
 }

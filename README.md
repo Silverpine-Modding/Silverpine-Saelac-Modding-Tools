@@ -4,7 +4,30 @@ Shared BepInEx framework services for extensible Silverpine mods.
 
 Created by **Saelac and ChatGPT**.
 
-**Current version:** 1.12.1
+**Current version:** 1.13.0
+
+## Shared art library (1.13.0)
+
+Modding Tools owns `BepInEx/shared/ArtLibrary` and initializes it independently
+of Custom Item Loader. Any mod can use `Silverpine.ModdingTools.SharedArtApi`:
+
+- `GetEntries()` lists reusable art and original names.
+- `GetViewPath(id, view)` resolves one cached view.
+- `CopyViewToPack(id, packDirectory, view)` imports a view into a self-contained pack.
+- `ImportImage(source, packDirectory)` imports collision-safe, content-addressed art.
+- `Publish(originalName, sourceFileName, png)` publishes a single-view asset.
+
+`SharedArtLibrary` also exposes the existing version-1 manifest operations,
+including four-view publishing, original GLB-name extraction and `CopyToPack`.
+Existing CIL library entries remain compatible; no migration or deletion is
+required. The framework supplies Newtonsoft.Json alongside its DLL, so using
+the library never requires CIL to be installed. `Root` is framework-owned.
+
+`ModToolSession.EscapeHandler` optionally lets a mod GUI handle Escape for
+unsaved-change prompts or picker/drag cancellation. Return true to keep the
+session open. Normal close and host destruction bypass the handler; a failing
+handler falls back to emergency cleanup. Existing consumers retain their
+previous behavior unless they opt in.
 
 ## Purpose
 
@@ -131,19 +154,19 @@ Silverpine.ModdingTools
 Framework API version documented here:
 
 ```text
-ModdingTools 1.12.1
+ModdingTools 1.13.0
 ```
 
 ## Installation
 
 1. Install BepInEx 5 for Silverpine.
-2. Download and extract `ModdingTools-1.12.1.zip` from the GitHub release.
+2. Download and extract `ModdingTools-1.13.0.zip` from the GitHub release.
 3. Place the extracted files together under
    `BepInEx/plugins/ModdingTools/`.
 4. Remove older duplicate copies of `ModdingTools.dll` elsewhere under
    `BepInEx/plugins/`.
-5. Start Silverpine and confirm BepInEx loads **Modding Tools Menu 1.12.1** and
-   **Modding Tools Legacy GUID Compatibility 1.12.1**.
+5. Start Silverpine and confirm BepInEx loads **Modding Tools Menu 1.13.0** and
+   **Modding Tools Legacy GUID Compatibility 1.13.0**.
 
 The complete ZIP contains `ModdingTools.dll`, the shared
 `Newtonsoft.Json.dll`, this README, and the Silverpine plugin-lifetime

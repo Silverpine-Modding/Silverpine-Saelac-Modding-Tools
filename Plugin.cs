@@ -20,7 +20,7 @@ public sealed class Plugin : BaseUnityPlugin
     public const string PluginGuid = "Saelac.Silverpine.ModdingTools";
     public const string LegacyPluginGuid = "renegadex.silverpine.moddingtools";
     public const string PluginName = "Modding Tools Menu";
-    public const string PluginVersion = "1.12.1";
+    public const string PluginVersion = "1.13.0";
 
     internal static ManualLogSource Log = null!;
     internal static ConfigEntry<KeyCode> InventoryModsShortcut = null!;
@@ -34,6 +34,7 @@ public sealed class Plugin : BaseUnityPlugin
     private void Awake()
     {
         Log = Logger;
+        SharedArtLibrary.Root = System.IO.Path.Combine(Paths.BepInExRootPath, "shared", "ArtLibrary");
         BepInEx.Logging.Logger.Listeners.Add(new FrameworkDiagnostics.ErrorListener());
         FrameworkConfig = Config;
         InventoryModsShortcut = Config.Bind(

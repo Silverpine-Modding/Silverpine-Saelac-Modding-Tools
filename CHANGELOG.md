@@ -2,6 +2,21 @@
 
 Created by Saelac and ChatGPT.
 
+## 1.13.0
+
+- Adds framework-owned shared artwork at BepInEx/shared/ArtLibrary, usable by
+  any mod without requiring Custom Item Loader. Existing version-1 entries
+  remain compatible, including single-view and four-direction art.
+- Adds SharedArtApi for listing, publishing, resolving views, and copying art
+  into self-contained packs with collision-safe, content-addressed filenames.
+- Bundles the framework's Newtonsoft.Json dependency in the build output.
+- Adds optional ModToolSession.EscapeHandler for unsaved-change prompts or
+  picker/drag cancellation. Normal close and host teardown bypass the handler;
+  thrown handler errors fall back to emergency cleanup. Existing consumers
+  keep their prior Escape behavior unless they opt in.
+- Extends compatibility checks to nested public API types and tests the new
+  Escape handling. Existing framework APIs and both plugin GUIDs are preserved.
+
 ## 1.12.1
 
 - Fixes tile refresh becoming unavailable after Silverpine destroys the
